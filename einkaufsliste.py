@@ -16,6 +16,9 @@ class Item:
         return f"[{status}] {self.name} (Menge: {self.quantity})"
 
 
+
+
+
 class ShoppingList:
     """
     Verwalten der gesamten Einkaufsliste.
