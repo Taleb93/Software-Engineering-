@@ -12,13 +12,31 @@ STATUS_LABELS = {
     "done": "Done"
 }
 
+
 class TaskGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Productivity App - Task Board")
         self.root.geometry("950x500")
 
-        self.columns = {}
+        # status -> Listbox
+        self.columns: dict[str, tk.Listbox] = {}
+        # Listbox -> status (für Drag & Drop / Kontextmenü)
+        self.listbox_status: dict[tk.Listbox, str] = {}
+
+        # Daten für Drag & Drop
+        self.drag_data = {
+            "widget": None,
+            "index": None,
+            "text": None,
+            "status": None,
+        }
+
+        # Für Rechtsklick-Kontextmenü
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(label="Delete Task", command=self.delete_selected_task)
+        self._context_listbox: tk.Listbox | None = None
+
         self._build_ui()
         self._load_tasks()
 
@@ -35,15 +53,35 @@ class TaskGUI:
             listbox = tk.Listbox(col_frame, width=30, height=20)
             listbox.pack(fill="both", expand=True, pady=5)
 
+            # Listbox interaktiv machen (Drag & Drop + Rechtsklick)
+            self._make_listbox_interactive(listbox, status)
+
             btn_move = tk.Button(col_frame, text="→ Move", command=lambda s=status: self.move_task(s))
             btn_move.pack(pady=5)
 
             self.columns[status] = listbox
+            self.listbox_status[listbox] = status
 
         tk.Button(self.root, text="➕ Create Task", font=("Arial", 12),
                   command=self.open_create_window).pack(pady=5)
 
         self.root.grid_columnconfigure((0, 1, 2), weight=1)
+
+    # ---------- Drag & Drop + Kontextmenü-Bindings ----------
+
+    def _make_listbox_interactive(self, listbox: tk.Listbox, status: str):
+        # Linksklick starten → möglicher Drag-Start
+        listbox.bind("<ButtonPress-1>", lambda e, s=status: self.on_start_drag(e, s))
+        # Mausbewegung mit gedrückter Taste (optional; hier nur für Cursor)
+        listbox.bind("<B1-Motion>", self.on_drag_motion)
+        # Maustaste loslassen → Drop
+        listbox.bind("<ButtonRelease-1>", self.on_drop)
+
+        # Rechtsklick-Kontextmenü
+        listbox.bind("<Button-3>", self.show_context_menu)  # Windows / Linux
+        listbox.bind("<Button-2>", self.show_context_menu)  # häufig macOS
+
+    # ---------- Laden der Aufgaben ----------
 
     def _load_tasks(self):
         for status in STATUS_COLUMNS:
@@ -54,7 +92,7 @@ class TaskGUI:
                 if deadline:
                     try:
                         deadline_display = datetime.strptime(deadline, "%Y-%m-%d").strftime("%d-%m-%Y")
-                    except:
+                    except Exception:
                         deadline_display = deadline
                 else:
                     deadline_display = ""
@@ -62,6 +100,8 @@ class TaskGUI:
                 if deadline_display:
                     display_text += f" (Deadline: {deadline_display})"
                 self.columns[status].insert(tk.END, display_text)
+
+    # ---------- Move-Button (wie bisher) ----------
 
     def move_task(self, current_status):
         listbox = self.columns[current_status]
@@ -80,6 +120,163 @@ class TaskGUI:
         new_status = STATUS_COLUMNS[next_status_index]
         repo.update_task_status(task_id, new_status)
         self._load_tasks()
+
+    # ---------- Drag & Drop Logik ----------
+
+    def on_start_drag(self, event: tk.Event, status: str):
+        """Start des Drag-Vorgangs: merken, von wo wir ziehen."""
+        widget: tk.Listbox = event.widget
+        index = widget.nearest(event.y)
+
+        if index < 0 or index >= widget.size():
+            return
+
+        # Auswahl in der Listbox setzen
+        widget.selection_clear(0, tk.END)
+        widget.selection_set(index)
+
+        text = widget.get(index)
+
+        self.drag_data["widget"] = widget
+        self.drag_data["index"] = index
+        self.drag_data["text"] = text
+        self.drag_data["status"] = status
+
+        # optional visuelles Feedback
+        self.root.config(cursor="hand2")
+
+    def on_drag_motion(self, event: tk.Event):
+        """Während des Draggens (hier nur Cursor-Anzeige)."""
+        # Hier könnte man z.B. noch ein 'Ghost'-Label zeigen – für euch reicht der Cursor.
+        pass
+
+    def on_drop(self, event: tk.Event):
+        """Maus losgelassen → Element in Ziel-Listbox einfügen."""
+        if self.drag_data["widget"] is None:
+            # kein aktiver Drag
+            self.root.config(cursor="")
+            return
+
+        source_widget: tk.Listbox = self.drag_data["widget"]
+        source_index: int = self.drag_data["index"]
+        text: str = self.drag_data["text"]
+        source_status: str = self.drag_data["status"]
+
+        target_widget: tk.Listbox = event.widget
+        target_status = self.listbox_status.get(target_widget)
+        if target_status is None:
+            # nicht auf einer gültigen Listbox gelandet
+            self._reset_drag()
+            return
+
+        # Zielposition in der Ziel-Listbox bestimmen
+        if target_widget.size() == 0:
+            target_index = 0
+        else:
+            target_index = target_widget.nearest(event.y)
+            if target_index < 0:
+                target_index = 0
+            if target_index > target_widget.size():
+                target_index = target_widget.size()
+
+        # Element aus Quell-Listbox entfernen
+        source_widget.delete(source_index)
+
+        # Falls gleiche Listbox und Element wurde nach unten gezogen, Index anpassen
+        if source_widget is target_widget and target_index > source_index:
+            target_index -= 1
+
+        # Element in Ziel-Listbox einfügen
+        if target_widget.size() == 0 or target_index >= target_widget.size():
+            target_widget.insert(tk.END, text)
+        else:
+            target_widget.insert(target_index, text)
+
+        # Status in DB aktualisieren, falls Spalte gewechselt
+        if source_status != target_status:
+            try:
+                task_id = int(text.split(" — ")[0])
+                repo.update_task_status(task_id, target_status)
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not update task status:\n{e}")
+
+        self._reset_drag()
+
+    def _reset_drag(self):
+        """Drag-Daten zurücksetzen."""
+        self.drag_data = {
+            "widget": None,
+            "index": None,
+            "text": None,
+            "status": None,
+        }
+        self.root.config(cursor="")
+
+    # ---------- Rechtsklick-Kontextmenü ----------
+
+    def show_context_menu(self, event: tk.Event):
+        """Kontextmenü für die angeklickte Aufgabe anzeigen."""
+        widget: tk.Listbox = event.widget
+        if widget.size() == 0:
+            return
+
+        index = widget.nearest(event.y)
+        if index < 0 or index >= widget.size():
+            return
+
+        # Aufgabe anklicken/selektieren
+        widget.selection_clear(0, tk.END)
+        widget.selection_set(index)
+
+        self._context_listbox = widget
+
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+
+    def delete_selected_task(self):
+        """Task aus DB und aus der Listbox löschen (Rechtsklick-Menü)."""
+        if self._context_listbox is None:
+            return
+
+        widget = self._context_listbox
+        selection = widget.curselection()
+        if not selection:
+            return
+
+        index = selection[0]
+        text = widget.get(index)
+
+        try:
+            task_id = int(text.split(" — ")[0])
+        except ValueError:
+            messagebox.showerror("Error", "Could not parse task id.")
+            return
+
+        # Nachfrage zur Sicherheit
+        if not messagebox.askyesno("Delete Task", f"Do you really want to delete task #{task_id}?"):
+            return
+
+        try:
+            # WICHTIG: hier evtl. Methodennamen an eure DB-Klasse anpassen
+            repo.delete_task(task_id)
+        except AttributeError:
+            messagebox.showerror(
+                "Error",
+                "TaskRepository.delete_task(task_id) ist nicht implementiert.\n"
+                "Bitte in data/database.py hinzufügen."
+            )
+            return
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not delete task:\n{e}")
+            return
+
+        # Aus der GUI-Listbox entfernen
+        widget.delete(index)
+        self._context_listbox = None
+
+    # ---------- Create-Task-Fenster ----------
 
     def open_create_window(self):
         win = tk.Toplevel(self.root)
@@ -124,6 +321,7 @@ class TaskGUI:
                 messagebox.showerror("Error", str(e))
 
         tk.Button(win, text="Save", command=save).grid(row=4, column=1, pady=10)
+
 
 if __name__ == "__main__":
     root = tk.Tk()
