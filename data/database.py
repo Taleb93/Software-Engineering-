@@ -8,13 +8,13 @@ DB_PATH = Path(__file__).parent / "tasks.db"
 class TaskRepository:
     def __init__(self, db_path=DB_PATH):
         self.db_path = db_path
-        #print(f"[DEBUG] Using database at: {self.db_path.resolve()}")
+        print(f"[DEBUG] Using database at: {self.db_path.resolve()}")
         self._initialize_database()
 
     def _connect(self):
         try:
             conn = sqlite3.connect(self.db_path)
-            #print("[DEBUG] DB connection successful")
+            print("[DEBUG] DB connection successful")
             return conn
         except sqlite3.Error as e:
             #print(f"[ERROR] Could not connect to DB: {e}")
@@ -35,7 +35,7 @@ class TaskRepository:
 
     # ✅ CRUD Operations
     def create_task(self, title, description="", status="todo", priority=2, deadline=None, category_id=None):
-        #print(f"[DEBUG] create_task called with: title={title!r}, deadline={deadline!r}")
+        print(f"[DEBUG] create_task called with: title={title!r}, deadline={deadline!r}")
 
         
         if not title or not title.strip():
@@ -72,13 +72,13 @@ class TaskRepository:
                        VALUES (?, ?, ?, ?, ?, datetime('now'), ?)""",
                     (title.strip(), description.strip(), status, priority, deadline, category_id),
                 )
-               # print("[DEBUG] Task inserted successfully")
+                print("[DEBUG] Task inserted successfully")
         except sqlite3.Error as e:
-           # print(f"[ERROR] Failed to insert task: {e}")
+            print(f"[ERROR] Failed to insert task: {e}")
             raise
 
     def get_tasks_by_status(self, status):
-        #print(f"[DEBUG] get_tasks_by_status called with: status={status}")
+        print(f"[DEBUG] get_tasks_by_status called with: status={status}")
         try:
             with self._connect() as conn:
                 rows = conn.execute(
@@ -89,14 +89,14 @@ class TaskRepository:
                        ORDER BY t.created_at DESC""",
                     (status,),
                 ).fetchall()
-                #print(f"[DEBUG] Retrieved {len(rows)} tasks")
+                print(f"[DEBUG] Retrieved {len(rows)} tasks")
                 return rows
         except sqlite3.Error as e:
-            #print(f"[ERROR] Failed to retrieve tasks: {e}")
+            print(f"[ERROR] Failed to retrieve tasks: {e}")
             raise
 
     def update_task_status(self, task_id, new_status):
-        #print(f"[DEBUG] update_task_status called: task_id={task_id}, new_status={new_status}")
+        print(f"[DEBUG] update_task_status called: task_id={task_id}, new_status={new_status}")
         if new_status not in ["todo", "in-progress", "done"]:
             raise ValueError("Invalid status value.")
         try:
@@ -107,13 +107,13 @@ class TaskRepository:
                        WHERE id = ?""",
                     (new_status, task_id),
                 )
-                ##print("[DEBUG] Task status updated successfully")
+                print("[DEBUG] Task status updated successfully")
         except sqlite3.Error as e:
             print(f"[ERROR] Failed to update status: {e}")
             raise
 
     def update_task(self, task_id, title, description, priority, deadline, category_id):
-        #print(f"[DEBUG] update_task called: task_id={task_id}, deadline={deadline!r}")
+        print(f"[DEBUG] update_task called: task_id={task_id}, deadline={deadline!r}")
         # Deadline konvertieren
         if deadline and deadline.strip():
             deadline_input = deadline.strip()
@@ -129,7 +129,7 @@ class TaskRepository:
             deadline = iso_deadline
         else:
             deadline = None
-            #print("[DEBUG] No deadline provided, set to None")
+            print("[DEBUG] No deadline provided, set to None")
 
         try:
             with self._connect() as conn:
@@ -140,17 +140,17 @@ class TaskRepository:
                        WHERE id = ?""",
                     (title.strip(), description.strip(), priority, deadline, category_id, task_id),
                 )
-               # print("[DEBUG] Task updated successfully")
+                print("[DEBUG] Task updated successfully")
         except sqlite3.Error as e:
-            #print(f"[ERROR] Failed to update task: {e}")
+            print(f"[ERROR] Failed to update task: {e}")
             raise
 
     def delete_task(self, task_id):
-        #print(f"[DEBUG] delete_task called: task_id={task_id}")
+        print(f"[DEBUG] delete_task called: task_id={task_id}")
         try:
             with self._connect() as conn:
                 conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
-                #print("[DEBUG] Task deleted successfully")
+                print("[DEBUG] Task deleted successfully")
         except sqlite3.Error as e:
-            #print(f"[ERROR] Failed to delete task: {e}")
+            print(f"[ERROR] Failed to delete task: {e}")
             raise
