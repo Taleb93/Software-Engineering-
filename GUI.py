@@ -49,34 +49,24 @@ class TaskGUI:
         for status in STATUS_COLUMNS:
             self.columns[status].delete(0, tk.END)
             tasks = repo.get_tasks_by_status(status)
-            for t in tasks:
-                task_id, title, desc, priority, deadline, cat_id, cat_name, cat_color = t
-                if deadline:
-                    try:
-                        deadline_display = datetime.strptime(deadline, "%Y-%m-%d").strftime("%d-%m-%Y")
-                    except:
-                        deadline_display = deadline
-                else:
-                    deadline_display = ""
-                display_text = f"{task_id} — {title}"
-                if deadline_display:
-                    display_text += f" (Deadline: {deadline_display})"
+            for task in tasks:  # Task-Objekt
+                display_text = f"{task.id} — {task.title}"
+                if task.deadline_display():
+                    display_text += f" (Deadline: {task.deadline_display()})"
                 self.columns[status].insert(tk.END, display_text)
+                print(f"[DEBUG] Loaded task: {task.id}, deadline: {task.deadline}")
 
     def move_task(self, current_status):
         listbox = self.columns[current_status]
         selection = listbox.curselection()
-
         if not selection:
             messagebox.showwarning("No Task Selected", "Select a task to move.")
             return
-
         task_id = int(listbox.get(selection[0]).split(" — ")[0])
         next_status_index = STATUS_COLUMNS.index(current_status) + 1
         if next_status_index >= len(STATUS_COLUMNS):
             messagebox.showinfo("Already Done", "Task already completed.")
             return
-
         new_status = STATUS_COLUMNS[next_status_index]
         repo.update_task_status(task_id, new_status)
         self._load_tasks()
@@ -93,7 +83,7 @@ class TaskGUI:
         desc_entry = tk.Entry(win, width=40)
         desc_entry.grid(row=1, column=1)
 
-        tk.Label(win, text="Deadline (DD-MM-YYYY):").grid(row=2, column=0, sticky="w")
+        tk.Label(win, text="Deadline (DD-MM-YYYY or DD.MM.YYYY):").grid(row=2, column=0, sticky="w")
         deadline_entry = tk.Entry(win, width=40)
         deadline_entry.grid(row=2, column=1)
 
@@ -106,11 +96,15 @@ class TaskGUI:
             iso_deadline = None
             if deadline_input:
                 try:
-                    iso_deadline = datetime.strptime(deadline_input, "%d-%m-%Y").strftime("%Y-%m-%d")
-                except ValueError:
-                    messagebox.showerror("Error", "Deadline muss im Format DD-MM-YYYY sein.")
+                    try:
+                        iso_deadline = datetime.strptime(deadline_input, "%d-%m-%Y").strftime("%Y-%m-%d")
+                    except ValueError:
+                        iso_deadline = datetime.strptime(deadline_input, "%d.%m.%Y").strftime("%Y-%m-%d")
+                    print(f"[DEBUG] Parsed ISO deadline: {iso_deadline}")
+                except ValueError as e:
+                    print(f"[DEBUG] Failed parsing deadline: {deadline_input} - {e}")
+                    messagebox.showerror("Error", "Deadline muss im Format DD-MM-YYYY oder DD.MM.YYYY sein.")
                     return
-
             try:
                 repo.create_task(
                     title=title_entry.get().strip(),
@@ -121,6 +115,7 @@ class TaskGUI:
                 win.destroy()
                 self._load_tasks()
             except Exception as e:
+                print(f"[DEBUG] create_task exception: {e}")
                 messagebox.showerror("Error", str(e))
 
         tk.Button(win, text="Save", command=save).grid(row=4, column=1, pady=10)
