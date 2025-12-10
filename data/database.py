@@ -60,7 +60,7 @@ class TaskRepository:
                    FROM tasks t
                    LEFT JOIN categories c ON t.category_id = c.id
                    WHERE t.status = ?
-                   ORDER BY t.created_at DESC""",
+                   ORDER BY t.priority ASC, t.created_at DESC""",
                 (status,),
             ).fetchall()
 
