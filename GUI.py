@@ -34,17 +34,57 @@ class TaskGUI:
         frame = tk.Frame(self.root)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        for i, status in enumerate(STATUS_COLUMNS):
-            col_frame = tk.Frame(frame, bd=2, relief="groove", padx=5, pady=5)
-            col_frame.grid(row=0, column=i, sticky="nsew", padx=5)
-            tk.Label(col_frame, text=STATUS_LABELS[status], font=("Arial", 14, "bold")).pack()
+        for status in STATUS_COLUMNS:
+            col_frame = tk.Frame(frame, padx=5, pady=5)
+            col_frame.grid(row=0, column=STATUS_COLUMNS.index(status), sticky="nsew")
 
-            tree = ttk.Treeview(col_frame, columns=("title", "deadline"), show="tree")
+            tk.Label(col_frame, text=STATUS_LABELS[status], font=("Arial", 12, "bold")).pack()
+
+            tree = ttk.Treeview(col_frame, columns=("title",), show="tree")
             tree.pack(fill="both", expand=True)
+
             tree.bind("<Button-3>", self.show_context_menu)
             tree.bind("<Double-Button-1>", self.show_task_details_dbl)
 
             self.columns[status] = tree
+
+                # Buttons je nach Spalte
+            if status == "todo":
+                # Nur EIN Button: To Do -> In Progress
+                move_btn = tk.Button(
+                    col_frame,
+                    text="→ Move to In Progress",
+                    command=lambda s=status: self.move_task_to("todo", "in-progress")
+                )
+                move_btn.pack(pady=5, fill="x")
+
+            elif status == "in-progress":
+                # ZWEI Buttons: zurück zu To Do ODER weiter zu Done
+
+                back_btn = tk.Button(
+                    col_frame,
+                    text="← Move to To Do",
+                    command=lambda s=status: self.move_task_to("in-progress", "todo")
+                )
+                back_btn.pack(side="left", expand=True, fill="x", padx=(0, 2))
+
+                forward_btn = tk.Button(
+                    col_frame,
+                    text="→ Move to Done",
+                    command=lambda s=status: self.move_task_to("in-progress", "done")
+                )
+                forward_btn.pack(side="left", expand=True, fill="x", padx=(2, 0))
+
+            elif status == "done":
+                # In Done nur löschen
+                del_btn = tk.Button(
+                    col_frame,
+                    text="🗑 Delete Task",
+                    command=self.delete_selected_in_done
+                )
+                del_btn.pack(pady=5, fill="x")
+
+
 
         tk.Button(self.root, text="➕ Create Task", font=("Arial", 12),
                   command=self.open_create_window).pack(pady=5)
@@ -67,19 +107,49 @@ class TaskGUI:
                 tree.tag_configure(f"prio{task.priority}", background=PRIORITY_COLORS[task.priority])
                 self.task_map[(status, item_id)] = task
 
-    def move_task(self, current_status):
-        tree = self.columns[current_status]
-        selection = tree.selection()
-        if not selection:
-            messagebox.showwarning("No Task Selected", "Select a task to move.")
+    def get_selected_task(self, status):
+        """Gibt die aktuell markierte Task in einer Spalte zurück (oder None)."""
+        tree = self.columns[status]
+        selected = tree.selection()
+        if not selected:
+            return None, None
+        item_id = selected[0]
+        task = self.task_map.get((status, item_id))
+        return task, item_id
+
+    def move_task_to(self, from_status, to_status):
+        """Verschiebt die markierte Aufgabe von einer Spalte in die andere."""
+        task, item_id = self.get_selected_task(from_status)
+        if not task:
+            messagebox.showwarning("Keine Auswahl", "Bitte zuerst eine Aufgabe markieren.")
             return
-        task = self.task_map.get((current_status, selection[0]))
-        next_index = STATUS_COLUMNS.index(current_status) + 1
-        if next_index >= len(STATUS_COLUMNS):
-            messagebox.showinfo("Already Done", "Task already completed.")
+
+        # Status in der Datenbank ändern
+        try:
+            repo.update_task_status(task.id, to_status)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Status konnte nicht geändert werden:\n{e}")
             return
-        new_status = STATUS_COLUMNS[next_index]
-        repo.update_task_status(task.id, new_status)
+
+        # GUI neu laden
+        self._load_tasks()
+
+    def delete_selected_in_done(self):
+        """Löscht die markierte Aufgabe in der Done-Spalte."""
+        task, item_id = self.get_selected_task("done")
+        if not task:
+            messagebox.showwarning("Keine Auswahl", "Bitte zuerst eine Aufgabe in 'Done' markieren.")
+            return
+
+        if not messagebox.askyesno("Löschen", f"Soll die Aufgabe '{task.title}' wirklich gelöscht werden?"):
+            return
+
+        try:
+            repo.delete_task(task.id)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Aufgabe konnte nicht gelöscht werden:\n{e}")
+            return
+
         self._load_tasks()
 
     # --- Create / Edit Task ---
