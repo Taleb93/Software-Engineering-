@@ -1,9 +1,9 @@
 import sqlite3
 from pathlib import Path
 from datetime import datetime
+from .models import Task  # neue Task-Klasse
 
 DB_PATH = Path(__file__).parent / "tasks.db"
-
 
 class TaskRepository:
     def __init__(self, db_path=DB_PATH):
@@ -14,10 +14,11 @@ class TaskRepository:
     def _connect(self):
         try:
             conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA foreign_keys = ON")
             print("[DEBUG] DB connection successful")
             return conn
         except sqlite3.Error as e:
-            #print(f"[ERROR] Could not connect to DB: {e}")
+            print(f"[ERROR] Could not connect to DB: {e}")
             raise
 
     def _initialize_database(self):
@@ -25,36 +26,27 @@ class TaskRepository:
         if not schema.exists():
             print(f"[ERROR] Schema file not found at: {schema.resolve()}")
             return
-        try:
-            with self._connect() as conn, open(schema, "r") as f:
-                conn.executescript(f.read())
-            print("[DEBUG] Database initialized successfully")
-        except Exception as e:
-            print(f"[ERROR] Failed to initialize DB: {e}")
+        with self._connect() as conn, open(schema, "r") as f:
+            conn.executescript(f.read())
+            print("[DEBUG] Database initialized or already exists")
 
+    # ---------------- CRUD Operations ----------------
 
-    # ✅ CRUD Operations
     def create_task(self, title, description="", status="todo", priority=2, deadline=None, category_id=None):
         print(f"[DEBUG] create_task called with: title={title!r}, deadline={deadline!r}")
-
-        
         if not title or not title.strip():
             raise ValueError("Title is required.")
-
         if status not in ["todo", "in-progress", "done"]:
             raise ValueError("Invalid status value.")
-
         if priority not in [1, 2, 3]:
             raise ValueError("Priority must be 1, 2, or 3.")
 
+        iso_deadline = None
         if deadline and deadline.strip():
             deadline_input = deadline.strip()
-            #print(f"[DEBUG] Raw deadline input: {deadline_input!r}")
-            iso_deadline = None
             for fmt in ("%d.%m.%Y", "%d-%m-%Y", "%Y-%m-%d"):
                 try:
                     iso_deadline = datetime.strptime(deadline_input, fmt).strftime("%Y-%m-%d")
-                    #print(f"[DEBUG] Parsed ISO deadline: {iso_deadline}")
                     break
                 except ValueError as e:
                     print(f"[DEBUG] Failed parsing with format {fmt}: {e}")
@@ -63,7 +55,7 @@ class TaskRepository:
             deadline = iso_deadline
         else:
             deadline = None
-           # print("[DEBUG] No deadline provided, set to None")
+            print("[DEBUG] No deadline provided, set to None")
 
         try:
             with self._connect() as conn:
@@ -82,18 +74,34 @@ class TaskRepository:
         try:
             with self._connect() as conn:
                 rows = conn.execute(
-                    """SELECT t.id, t.title, t.description, t.priority, t.deadline, t.category_id, c.name, c.color
+                    """SELECT t.id, t.title, t.description, t.status, t.priority, t.deadline,
+                              t.category_id, c.name, c.color
                        FROM tasks t
                        LEFT JOIN categories c ON t.category_id = c.id
                        WHERE t.status = ?
-                       ORDER BY t.created_at DESC""",
+                       ORDER BY t.priority ASC, t.created_at DESC""",
                     (status,),
                 ).fetchall()
                 print(f"[DEBUG] Retrieved {len(rows)} tasks")
-                return rows
         except sqlite3.Error as e:
             print(f"[ERROR] Failed to retrieve tasks: {e}")
             raise
+
+        tasks = [
+            Task(
+                id=row[0],
+                title=row[1],
+                description=row[2],
+                status=row[3],
+                priority=row[4],
+                deadline=row[5],
+                category_id=row[6],
+                category_name=row[7],
+                category_color=row[8]
+            )
+            for row in rows
+        ]
+        return tasks
 
     def update_task_status(self, task_id, new_status):
         print(f"[DEBUG] update_task_status called: task_id={task_id}, new_status={new_status}")
@@ -114,16 +122,15 @@ class TaskRepository:
 
     def update_task(self, task_id, title, description, priority, deadline, category_id):
         print(f"[DEBUG] update_task called: task_id={task_id}, deadline={deadline!r}")
-        # Deadline konvertieren
+        iso_deadline = None
         if deadline and deadline.strip():
             deadline_input = deadline.strip()
-            iso_deadline = None
             for fmt in ("%d.%m.%Y", "%d-%m-%Y", "%Y-%m-%d"):
                 try:
                     iso_deadline = datetime.strptime(deadline_input, fmt).strftime("%Y-%m-%d")
                     break
-                except ValueError:
-                    continue
+                except ValueError as e:
+                    print(f"[DEBUG] Failed parsing with format {fmt}: {e}")
             if iso_deadline is None:
                 raise ValueError("Deadline must be DD.MM.YYYY, DD-MM-YYYY or YYYY-MM-DD.")
             deadline = iso_deadline

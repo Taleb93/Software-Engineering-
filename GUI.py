@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 from datetime import datetime
 from data.database import TaskRepository
 
@@ -11,7 +11,7 @@ STATUS_LABELS = {
     "in-progress": "In Progress",
     "done": "Done"
 }
-
+PRIORITY_COLORS = {1: "red", 2: "yellow", 3: "green"}
 
 class TaskGUI:
     def __init__(self, root):
@@ -19,23 +19,14 @@ class TaskGUI:
         self.root.title("Productivity App - Task Board")
         self.root.geometry("950x500")
 
-        # status -> Listbox
-        self.columns: dict[str, tk.Listbox] = {}
-        # Listbox -> status (für Drag & Drop / Kontextmenü)
-        self.listbox_status: dict[tk.Listbox, str] = {}
+        self.columns: dict[str, ttk.Treeview] = {}
+        self.task_map = {}
+        self.selected_task = None
 
-        # Daten für Drag & Drop
-        self.drag_data = {
-            "widget": None,
-            "index": None,
-            "text": None,
-            "status": None,
-        }
-
-        # Für Rechtsklick-Kontextmenü
+        # Kontextmenü für Bearbeiten & Löschen
         self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="Delete Task", command=self.delete_selected_task)
-        self._context_listbox: tk.Listbox | None = None
+        self.context_menu.add_command(label="Bearbeiten", command=self.edit_task)
+        self.context_menu.add_command(label="Löschen", command=self.delete_task)
 
         self._build_ui()
         self._load_tasks()
@@ -45,283 +36,191 @@ class TaskGUI:
         frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         for i, status in enumerate(STATUS_COLUMNS):
-            col_frame = tk.Frame(frame, bd=2, relief="groove", padx=10, pady=10)
-            col_frame.grid(row=0, column=i, sticky="nsew", padx=5)
+            col_frame = tk.Frame(frame, padx=5, pady=5)
+            col_frame.grid(row=0, column=i, sticky="nsew")
 
-            tk.Label(col_frame, text=STATUS_LABELS[status], font=("Arial", 14, "bold")).pack()
+            tk.Label(col_frame, text=STATUS_LABELS[status], font=("Arial", 12, "bold")).pack()
 
-            listbox = tk.Listbox(col_frame, width=30, height=20)
-            listbox.pack(fill="both", expand=True, pady=5)
+            tree = ttk.Treeview(col_frame, columns=("title",), show="tree")
+            tree.pack(fill="both", expand=True)
+            tree.bind("<Button-3>", self.show_context_menu)
+            tree.bind("<Double-Button-1>", self.show_task_details_dbl)
 
-            # Listbox interaktiv machen (Drag & Drop + Rechtsklick)
-            self._make_listbox_interactive(listbox, status)
+            self.columns[status] = tree
 
-            btn_move = tk.Button(col_frame, text="→ Move", command=lambda s=status: self.move_task(s))
-            btn_move.pack(pady=5)
+            # Buttons je nach Spalte
+            if status == "todo":
+                move_btn = tk.Button(col_frame, text="→ Move to In Progress",
+                                     command=lambda s=status: self.move_task_to("todo", "in-progress"))
+                move_btn.pack(pady=5, fill="x")
+            elif status == "in-progress":
+                back_btn = tk.Button(col_frame, text="← Move to To Do",
+                                     command=lambda s=status: self.move_task_to("in-progress", "todo"))
+                back_btn.pack(side="left", expand=True, fill="x", padx=(0, 2))
+                forward_btn = tk.Button(col_frame, text="→ Move to Done",
+                                        command=lambda s=status: self.move_task_to("in-progress", "done"))
+                forward_btn.pack(side="left", expand=True, fill="x", padx=(2, 0))
+            # DONE-Spalte: keine Buttons nötig, Löschen via Kontextmenü
 
-            self.columns[status] = listbox
-            self.listbox_status[listbox] = status
-
+        # Create Task Button immer sichtbar
         tk.Button(self.root, text="➕ Create Task", font=("Arial", 12),
                   command=self.open_create_window).pack(pady=5)
 
-        self.root.grid_columnconfigure((0, 1, 2), weight=1)
-
-    # ---------- Drag & Drop + Kontextmenü-Bindings ----------
-
-    def _make_listbox_interactive(self, listbox: tk.Listbox, status: str):
-        # Linksklick starten → möglicher Drag-Start
-        listbox.bind("<ButtonPress-1>", lambda e, s=status: self.on_start_drag(e, s))
-        # Mausbewegung mit gedrückter Taste (optional; hier nur für Cursor)
-        listbox.bind("<B1-Motion>", self.on_drag_motion)
-        # Maustaste loslassen → Drop
-        listbox.bind("<ButtonRelease-1>", self.on_drop)
-
-        # Rechtsklick-Kontextmenü
-        listbox.bind("<Button-3>", self.show_context_menu)  # Windows / Linux
-        listbox.bind("<Button-2>", self.show_context_menu)  # häufig macOS
-
-    # ---------- Laden der Aufgaben ----------
+        for i in range(len(STATUS_COLUMNS)):
+            frame.grid_columnconfigure(i, weight=1)
 
     def _load_tasks(self):
+        self.task_map = {}
         for status in STATUS_COLUMNS:
-            self.columns[status].delete(0, tk.END)
+            tree = self.columns[status]
+            for row in tree.get_children():
+                tree.delete(row)
             tasks = repo.get_tasks_by_status(status)
-            for t in tasks:
-                task_id, title, desc, priority, deadline, cat_id, cat_name, cat_color = t
-                if deadline:
-                    try:
-                        deadline_display = datetime.strptime(deadline, "%Y-%m-%d").strftime("%d-%m-%Y")
-                    except Exception:
-                        deadline_display = deadline
-                else:
-                    deadline_display = ""
-                display_text = f"{task_id} — {title}"
-                if deadline_display:
-                    display_text += f" (Deadline: {deadline_display})"
-                self.columns[status].insert(tk.END, display_text)
+            for task in tasks:
+                display_text = task.title
+                if task.deadline_display():
+                    display_text += f" (Deadline: {task.deadline_display()})"
+                item_id = tree.insert("", "end", text=display_text, tags=(f"prio{task.priority}",))
+                tree.tag_configure(f"prio{task.priority}", background=PRIORITY_COLORS[task.priority])
+                self.task_map[(status, item_id)] = task
 
-    # ---------- Move-Button (wie bisher) ----------
+    def get_selected_task(self, status):
+        tree = self.columns[status]
+        selected = tree.selection()
+        if not selected:
+            return None, None
+        item_id = selected[0]
+        task = self.task_map.get((status, item_id))
+        return task, item_id
 
-    def move_task(self, current_status):
-        listbox = self.columns[current_status]
-        selection = listbox.curselection()
-
-        if not selection:
-            messagebox.showwarning("No Task Selected", "Select a task to move.")
+    def move_task_to(self, from_status, to_status):
+        task, item_id = self.get_selected_task(from_status)
+        if not task:
+            messagebox.showwarning("Keine Auswahl", "Bitte zuerst eine Aufgabe markieren.")
             return
-
-        task_id = int(listbox.get(selection[0]).split(" — ")[0])
-        next_status_index = STATUS_COLUMNS.index(current_status) + 1
-        if next_status_index >= len(STATUS_COLUMNS):
-            messagebox.showinfo("Already Done", "Task already completed.")
+        try:
+            repo.update_task_status(task.id, to_status)
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Status konnte nicht geändert werden:\n{e}")
             return
-
-        new_status = STATUS_COLUMNS[next_status_index]
-        repo.update_task_status(task_id, new_status)
         self._load_tasks()
 
-    # ---------- Drag & Drop Logik ----------
-
-    def on_start_drag(self, event: tk.Event, status: str):
-        """Start des Drag-Vorgangs: merken, von wo wir ziehen."""
-        widget: tk.Listbox = event.widget
-        index = widget.nearest(event.y)
-
-        if index < 0 or index >= widget.size():
-            return
-
-        # Auswahl in der Listbox setzen
-        widget.selection_clear(0, tk.END)
-        widget.selection_set(index)
-
-        text = widget.get(index)
-
-        self.drag_data["widget"] = widget
-        self.drag_data["index"] = index
-        self.drag_data["text"] = text
-        self.drag_data["status"] = status
-
-        # optional visuelles Feedback
-        self.root.config(cursor="hand2")
-
-    def on_drag_motion(self, event: tk.Event):
-        """Während des Draggens (hier nur Cursor-Anzeige)."""
-        # Hier könnte man z.B. noch ein 'Ghost'-Label zeigen – für euch reicht der Cursor.
-        pass
-
-    def on_drop(self, event: tk.Event):
-        """Maus losgelassen → Element in Ziel-Listbox einfügen."""
-        if self.drag_data["widget"] is None:
-            # kein aktiver Drag
-            self.root.config(cursor="")
-            return
-
-        source_widget: tk.Listbox = self.drag_data["widget"]
-        source_index: int = self.drag_data["index"]
-        text: str = self.drag_data["text"]
-        source_status: str = self.drag_data["status"]
-
-        target_widget: tk.Listbox = event.widget
-        target_status = self.listbox_status.get(target_widget)
-        if target_status is None:
-            # nicht auf einer gültigen Listbox gelandet
-            self._reset_drag()
-            return
-
-        # Zielposition in der Ziel-Listbox bestimmen
-        if target_widget.size() == 0:
-            target_index = 0
-        else:
-            target_index = target_widget.nearest(event.y)
-            if target_index < 0:
-                target_index = 0
-            if target_index > target_widget.size():
-                target_index = target_widget.size()
-
-        # Element aus Quell-Listbox entfernen
-        source_widget.delete(source_index)
-
-        # Falls gleiche Listbox und Element wurde nach unten gezogen, Index anpassen
-        if source_widget is target_widget and target_index > source_index:
-            target_index -= 1
-
-        # Element in Ziel-Listbox einfügen
-        if target_widget.size() == 0 or target_index >= target_widget.size():
-            target_widget.insert(tk.END, text)
-        else:
-            target_widget.insert(target_index, text)
-
-        # Status in DB aktualisieren, falls Spalte gewechselt
-        if source_status != target_status:
-            try:
-                task_id = int(text.split(" — ")[0])
-                repo.update_task_status(task_id, target_status)
-            except Exception as e:
-                messagebox.showerror("Error", f"Could not update task status:\n{e}")
-
-        self._reset_drag()
-
-    def _reset_drag(self):
-        """Drag-Daten zurücksetzen."""
-        self.drag_data = {
-            "widget": None,
-            "index": None,
-            "text": None,
-            "status": None,
-        }
-        self.root.config(cursor="")
-
-    # ---------- Rechtsklick-Kontextmenü ----------
-
-    def show_context_menu(self, event: tk.Event):
-        """Kontextmenü für die angeklickte Aufgabe anzeigen."""
-        widget: tk.Listbox = event.widget
-        if widget.size() == 0:
-            return
-
-        index = widget.nearest(event.y)
-        if index < 0 or index >= widget.size():
-            return
-
-        # Aufgabe anklicken/selektieren
-        widget.selection_clear(0, tk.END)
-        widget.selection_set(index)
-
-        self._context_listbox = widget
-
-        try:
-            self.context_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self.context_menu.grab_release()
-
-    def delete_selected_task(self):
-        """Task aus DB und aus der Listbox löschen (Rechtsklick-Menü)."""
-        if self._context_listbox is None:
-            return
-
-        widget = self._context_listbox
-        selection = widget.curselection()
-        if not selection:
-            return
-
-        index = selection[0]
-        text = widget.get(index)
-
-        try:
-            task_id = int(text.split(" — ")[0])
-        except ValueError:
-            messagebox.showerror("Error", "Could not parse task id.")
-            return
-
-        # Nachfrage zur Sicherheit
-        if not messagebox.askyesno("Delete Task", f"Do you really want to delete task #{task_id}?"):
-            return
-
-        try:
-            # WICHTIG: hier evtl. Methodennamen an eure DB-Klasse anpassen
-            repo.delete_task(task_id)
-        except AttributeError:
-            messagebox.showerror(
-                "Error",
-                "TaskRepository.delete_task(task_id) ist nicht implementiert.\n"
-                "Bitte in data/database.py hinzufügen."
-            )
-            return
-        except Exception as e:
-            messagebox.showerror("Error", f"Could not delete task:\n{e}")
-            return
-
-        # Aus der GUI-Listbox entfernen
-        widget.delete(index)
-        self._context_listbox = None
-
-    # ---------- Create-Task-Fenster ----------
-
-    def open_create_window(self):
+    # --- Create / Edit Task ---
+    def open_create_window(self, task=None):
         win = tk.Toplevel(self.root)
-        win.title("Create Task")
+        win.title("Create Task" if task is None else "Edit Task")
 
         tk.Label(win, text="Title:").grid(row=0, column=0, sticky="w")
         title_entry = tk.Entry(win, width=40)
         title_entry.grid(row=0, column=1)
+        if task:
+            title_entry.insert(0, task.title)
 
         tk.Label(win, text="Description:").grid(row=1, column=0, sticky="w")
         desc_entry = tk.Entry(win, width=40)
         desc_entry.grid(row=1, column=1)
+        if task:
+            desc_entry.insert(0, task.description)
 
-        tk.Label(win, text="Deadline (DD-MM-YYYY):").grid(row=2, column=0, sticky="w")
+        tk.Label(win, text="Deadline (DD-MM-YYYY or DD.MM.YYYY):").grid(row=2, column=0, sticky="w")
         deadline_entry = tk.Entry(win, width=40)
         deadline_entry.grid(row=2, column=1)
+        if task and task.deadline_display():
+            deadline_entry.insert(0, task.deadline_display())
 
-        tk.Label(win, text="Priority (1-3):").grid(row=3, column=0, sticky="w")
-        priority_entry = tk.Entry(win, width=40)
-        priority_entry.grid(row=3, column=1)
+        tk.Label(win, text="Priority:").grid(row=3, column=0, sticky="w")
+        priority_frame = tk.Frame(win)
+        priority_frame.grid(row=3, column=1, pady=5)
+        selected_priority = tk.IntVar()
+        if task:
+            selected_priority.set(task.priority)
+        squares = {}
+        for prio, color in PRIORITY_COLORS.items():
+            sq = tk.Label(priority_frame, bg=color, width=4, height=2, bd=2, relief="solid")
+            sq.grid(row=0, column=prio)
+            squares[prio] = sq
+            sq.config(highlightthickness=2 if selected_priority.get() == prio else 0, highlightbackground="black")
 
-        def save():
+            def on_click(p=prio):
+                selected_priority.set(p)
+                for s_p, s_lbl in squares.items():
+                    s_lbl.config(highlightthickness=2 if s_p == p else 0)
+
+            sq.bind("<Button-1>", lambda e, p=prio: on_click(p))
+
+        def save_task():
+            title = title_entry.get().strip()
+            description = desc_entry.get().strip()
             deadline_input = deadline_entry.get().strip()
             iso_deadline = None
             if deadline_input:
-                try:
-                    iso_deadline = datetime.strptime(deadline_input, "%d-%m-%Y").strftime("%Y-%m-%d")
-                except ValueError:
-                    messagebox.showerror("Error", "Deadline muss im Format DD-MM-YYYY sein.")
+                for fmt in ("%d-%m-%Y", "%d.%m.%Y", "%Y-%m-%d"):
+                    try:
+                        iso_deadline = datetime.strptime(deadline_input, fmt).strftime("%Y-%m-%d")
+                        break
+                    except ValueError:
+                        continue
+                if iso_deadline is None:
+                    messagebox.showerror("Error", "Deadline muss DD-MM-YYYY oder DD.MM.YYYY sein.")
                     return
-
+            priority = selected_priority.get()
+            if priority == 0:
+                messagebox.showerror("Error", "Bitte eine Priorität wählen.")
+                return
             try:
-                repo.create_task(
-                    title=title_entry.get().strip(),
-                    description=desc_entry.get().strip(),
-                    priority=int(priority_entry.get() or 2),
-                    deadline=iso_deadline
-                )
+                if task is None:
+                    repo.create_task(title=title, description=description, priority=priority, deadline=iso_deadline)
+                else:
+                    repo.update_task(task.id, title, description, priority, iso_deadline, task.category_id)
                 win.destroy()
                 self._load_tasks()
             except Exception as e:
                 messagebox.showerror("Error", str(e))
 
-        tk.Button(win, text="Save", command=save).grid(row=4, column=1, pady=10)
+        tk.Button(win, text="Save", command=save_task).grid(row=4, column=1, pady=10)
 
+    # --- Kontextmenü ---
+    def show_context_menu(self, event):
+        widget = event.widget
+        item = widget.identify_row(event.y)
+        status = next((s for s, t in self.columns.items() if t == widget), None)
+        if status is None:
+            return
+        task = self.task_map.get((status, item))
+        if task:
+            self.selected_task = task
+            self.context_menu.post(event.x_root, event.y_root)
+
+    def edit_task(self):
+        if self.selected_task:
+            self.open_create_window(self.selected_task)
+
+    def delete_task(self):
+        if not self.selected_task:
+            return
+        if messagebox.askyesno("Confirm Delete", f"Delete task '{self.selected_task.title}'?"):
+            repo.delete_task(self.selected_task.id)
+            self._load_tasks()
+            self.selected_task = None
+
+    # --- Doppelklick zeigt Details ---
+    def show_task_details_dbl(self, event):
+        widget = event.widget
+        item = widget.identify_row(event.y)
+        status = next((s for s, t in self.columns.items() if t == widget), None)
+        task = self.task_map.get((status, item))
+        if task:
+            self._show_details_window(task)
+
+    def _show_details_window(self, task):
+        win = tk.Toplevel(self.root)
+        win.title(f"Task Details - {task.title}")
+        tk.Label(win, text=f"Title: {task.title}", font=("Arial", 12, "bold")).pack(anchor="w")
+        tk.Label(win, text=f"Description: {task.description or '-'}").pack(anchor="w")
+        tk.Label(win, text=f"Status: {task.status}").pack(anchor="w")
+        tk.Label(win, text=f"Deadline: {task.deadline_display() or '-'}").pack(anchor="w")
+        tk.Label(win, text=f"Priority: {task.priority}").pack(anchor="w")
+        tk.Button(win, text="Close", command=win.destroy).pack(pady=5)
 
 if __name__ == "__main__":
     root = tk.Tk()
