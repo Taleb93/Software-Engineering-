@@ -53,19 +53,6 @@ class TaskGUI:
 
             self.columns[status] = tree
 
-            # Buttons je nach Spalte
-            if status == "todo":
-                move_btn = tk.Button(col_frame, text="→ Move to In Progress",
-                                     command=lambda s=status: self.move_task_to("todo", "in-progress"))
-                move_btn.pack(pady=5, fill="x")
-            elif status == "in-progress":
-                back_btn = tk.Button(col_frame, text="← Move to To Do",
-                                     command=lambda s=status: self.move_task_to("in-progress", "todo"))
-                back_btn.pack(side="left", expand=True, fill="x", padx=(0, 2))
-                forward_btn = tk.Button(col_frame, text="→ Move to Done",
-                                        command=lambda s=status: self.move_task_to("in-progress", "done"))
-                forward_btn.pack(side="left", expand=True, fill="x", padx=(2, 0))
-
         tk.Button(self.root, text="➕ Create Task", font=("Arial", 12),
                   command=self.open_create_window).pack(pady=5)
 
@@ -95,18 +82,6 @@ class TaskGUI:
         item_id = selected[0]
         task = self.task_map.get((status, item_id))
         return task, item_id
-
-    def move_task_to(self, from_status, to_status):
-        task, item_id = self.get_selected_task(from_status)
-        if not task:
-            messagebox.showwarning("Keine Auswahl", "Bitte zuerst eine Aufgabe markieren.")
-            return
-        try:
-            repo.update_task_status(task.id, to_status)
-        except Exception as e:
-            messagebox.showerror("Fehler", f"Status konnte nicht geändert werden:\n{e}")
-            return
-        self._load_tasks()
 
     def open_create_window(self, task=None):
         win = tk.Toplevel(self.root)
