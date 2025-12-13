@@ -1,9 +1,7 @@
 import tkinter as tk
 from tkinter import messagebox, ttk
 from datetime import datetime
-from data.database import TaskRepository
-
-repo = TaskRepository()
+from data.database import TaskRepository, AbstractTaskRepository
 
 STATUS_COLUMNS = ["todo", "in-progress", "done"]
 STATUS_LABELS = {
@@ -11,80 +9,57 @@ STATUS_LABELS = {
     "in-progress": "In Progress",
     "done": "Done"
 }
-
 PRIORITY_COLORS = {1: "red", 2: "yellow", 3: "green"}
 
+
 class TaskGUI:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk, repo: AbstractTaskRepository):
         self.root = root
+        self.repo = repo
+
         self.root.title("Productivity App - Task Board")
         self.root.geometry("950x500")
 
-        self.columns = {}
-        self._build_ui()
-        self._load_tasks()
+        self.columns: dict[str, ttk.Treeview] = {}
+        self.task_map = {}
+        self.selected_task = None
 
-        # Kontextmenü
         self.context_menu = tk.Menu(self.root, tearoff=0)
         self.context_menu.add_command(label="Bearbeiten", command=self.edit_task)
         self.context_menu.add_command(label="Löschen", command=self.delete_task)
-        self.selected_task = None
+
+        self.drag_data = {"task": None, "from_status": None, "item_id": None}
+
+        self._build_ui()
+        self._load_tasks()
 
     def _build_ui(self):
         frame = tk.Frame(self.root)
         frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        for status in STATUS_COLUMNS:
+        for i, status in enumerate(STATUS_COLUMNS):
             col_frame = tk.Frame(frame, padx=5, pady=5)
-            col_frame.grid(row=0, column=STATUS_COLUMNS.index(status), sticky="nsew")
+            col_frame.grid(row=0, column=i, sticky="nsew")
 
             tk.Label(col_frame, text=STATUS_LABELS[status], font=("Arial", 12, "bold")).pack()
 
             tree = ttk.Treeview(col_frame, columns=("title",), show="tree")
             tree.pack(fill="both", expand=True)
 
+            # Kontextmenü (Win/Linux/macOS)
             tree.bind("<Button-3>", self.show_context_menu)
+            tree.bind("<Button-2>", self.show_context_menu)
+            tree.bind("<Control-Button-1>", self.show_context_menu)
+
+            # Details
             tree.bind("<Double-Button-1>", self.show_task_details_dbl)
 
+            # Drag & Drop
+            tree.bind("<ButtonPress-1>", lambda e, s=status: self.on_start_drag(e, s))
+            tree.bind("<B1-Motion>", self.on_drag_motion)
+            tree.bind("<ButtonRelease-1>", self.on_drop)
+
             self.columns[status] = tree
-
-                # Buttons je nach Spalte
-            if status == "todo":
-                # Nur EIN Button: To Do -> In Progress
-                move_btn = tk.Button(
-                    col_frame,
-                    text="→ Move to In Progress",
-                    command=lambda s=status: self.move_task_to("todo", "in-progress")
-                )
-                move_btn.pack(pady=5, fill="x")
-
-            elif status == "in-progress":
-                # ZWEI Buttons: zurück zu To Do ODER weiter zu Done
-
-                back_btn = tk.Button(
-                    col_frame,
-                    text="← Move to To Do",
-                    command=lambda s=status: self.move_task_to("in-progress", "todo")
-                )
-                back_btn.pack(side="left", expand=True, fill="x", padx=(0, 2))
-
-                forward_btn = tk.Button(
-                    col_frame,
-                    text="→ Move to Done",
-                    command=lambda s=status: self.move_task_to("in-progress", "done")
-                )
-                forward_btn.pack(side="left", expand=True, fill="x", padx=(2, 0))
-
-            elif status == "done":
-                # In Done nur löschen
-                del_btn = tk.Button(
-                    col_frame,
-                    text="🗑 Delete Task",
-                    command=self.delete_selected_in_done
-                )
-                del_btn.pack(pady=5, fill="x")
-
-
 
         tk.Button(self.root, text="➕ Create Task", font=("Arial", 12),
                   command=self.open_create_window).pack(pady=5)
@@ -98,17 +73,18 @@ class TaskGUI:
             tree = self.columns[status]
             for row in tree.get_children():
                 tree.delete(row)
-            tasks = repo.get_tasks_by_status(status)
+
+            tasks = self.repo.get_tasks_by_status(status)
             for task in tasks:
-                display_text = f"{task.title}"
+                display_text = task.title
                 if task.deadline_display():
                     display_text += f" (Deadline: {task.deadline_display()})"
+
                 item_id = tree.insert("", "end", text=display_text, tags=(f"prio{task.priority}",))
                 tree.tag_configure(f"prio{task.priority}", background=PRIORITY_COLORS[task.priority])
                 self.task_map[(status, item_id)] = task
 
     def get_selected_task(self, status):
-        """Gibt die aktuell markierte Task in einer Spalte zurück (oder None)."""
         tree = self.columns[status]
         selected = tree.selection()
         if not selected:
@@ -116,41 +92,6 @@ class TaskGUI:
         item_id = selected[0]
         task = self.task_map.get((status, item_id))
         return task, item_id
-
-    def move_task_to(self, from_status, to_status):
-        """Verschiebt die markierte Aufgabe von einer Spalte in die andere."""
-        task, item_id = self.get_selected_task(from_status)
-        if not task:
-            messagebox.showwarning("Keine Auswahl", "Bitte zuerst eine Aufgabe markieren.")
-            return
-
-        # Status in der Datenbank ändern
-        try:
-            repo.update_task_status(task.id, to_status)
-        except Exception as e:
-            messagebox.showerror("Fehler", f"Status konnte nicht geändert werden:\n{e}")
-            return
-
-        # GUI neu laden
-        self._load_tasks()
-
-    def delete_selected_in_done(self):
-        """Löscht die markierte Aufgabe in der Done-Spalte."""
-        task, item_id = self.get_selected_task("done")
-        if not task:
-            messagebox.showwarning("Keine Auswahl", "Bitte zuerst eine Aufgabe in 'Done' markieren.")
-            return
-
-        if not messagebox.askyesno("Löschen", f"Soll die Aufgabe '{task.title}' wirklich gelöscht werden?"):
-            return
-
-        try:
-            repo.delete_task(task.id)
-        except Exception as e:
-            messagebox.showerror("Fehler", f"Aufgabe konnte nicht gelöscht werden:\n{e}")
-            return
-
-        self._load_tasks()
 
     # --- Create / Edit Task ---
     def open_create_window(self, task=None):
@@ -178,16 +119,18 @@ class TaskGUI:
         tk.Label(win, text="Priority:").grid(row=3, column=0, sticky="w")
         priority_frame = tk.Frame(win)
         priority_frame.grid(row=3, column=1, pady=5)
+
         selected_priority = tk.IntVar()
         if task:
             selected_priority.set(task.priority)
+
         squares = {}
         for prio, color in PRIORITY_COLORS.items():
             sq = tk.Label(priority_frame, bg=color, width=4, height=2, bd=2, relief="solid")
             sq.grid(row=0, column=prio)
             squares[prio] = sq
-            # Initial schwarzer Rand, wenn ausgewählt
-            sq.config(highlightthickness=2 if selected_priority.get() == prio else 0, highlightbackground="black")
+            sq.config(highlightthickness=2 if selected_priority.get() == prio else 0,
+                      highlightbackground="black")
 
             def on_click(p=prio):
                 selected_priority.set(p)
@@ -200,6 +143,7 @@ class TaskGUI:
             title = title_entry.get().strip()
             description = desc_entry.get().strip()
             deadline_input = deadline_entry.get().strip()
+
             iso_deadline = None
             if deadline_input:
                 for fmt in ("%d-%m-%Y", "%d.%m.%Y", "%Y-%m-%d"):
@@ -211,15 +155,19 @@ class TaskGUI:
                 if iso_deadline is None:
                     messagebox.showerror("Error", "Deadline muss DD-MM-YYYY oder DD.MM.YYYY sein.")
                     return
+
             priority = selected_priority.get()
             if priority == 0:
                 messagebox.showerror("Error", "Bitte eine Priorität wählen.")
                 return
+
             try:
                 if task is None:
-                    repo.create_task(title=title, description=description, priority=priority, deadline=iso_deadline)
+                    self.repo.create_task(title=title, description=description,
+                                          priority=priority, deadline=iso_deadline)
                 else:
-                    repo.update_task(task.id, title, description, priority, iso_deadline, task.category_id)
+                    self.repo.update_task(task.id, title, description,
+                                          priority, iso_deadline, task.category_id)
                 win.destroy()
                 self._load_tasks()
             except Exception as e:
@@ -227,17 +175,25 @@ class TaskGUI:
 
         tk.Button(win, text="Save", command=save_task).grid(row=4, column=1, pady=10)
 
-    # --- Kontextmenü ---
+    # ---------- Kontextmenü ----------
     def show_context_menu(self, event):
         widget = event.widget
         item = widget.identify_row(event.y)
+        if not item:
+            return
+
+        widget.selection_set(item)
+        widget.focus(item)
+
         status = next((s for s, t in self.columns.items() if t == widget), None)
         if status is None:
             return
+
         task = self.task_map.get((status, item))
         if task:
             self.selected_task = task
-            self.context_menu.post(event.x_root, event.y_root)
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+            self.context_menu.grab_release()
 
     def edit_task(self):
         if self.selected_task:
@@ -247,11 +203,11 @@ class TaskGUI:
         if not self.selected_task:
             return
         if messagebox.askyesno("Confirm Delete", f"Delete task '{self.selected_task.title}'?"):
-            repo.delete_task(self.selected_task.id)
+            self.repo.delete_task(self.selected_task.id)
             self._load_tasks()
             self.selected_task = None
 
-    # --- Doppelklick zeigt Details ---
+    # ---------- Doppelklick zeigt Details ----------
     def show_task_details_dbl(self, event):
         widget = event.widget
         item = widget.identify_row(event.y)
@@ -270,8 +226,57 @@ class TaskGUI:
         tk.Label(win, text=f"Priority: {task.priority}").pack(anchor="w")
         tk.Button(win, text="Close", command=win.destroy).pack(pady=5)
 
+    # ---------- Drag & Drop ----------
+    def on_start_drag(self, event, status):
+        tree = event.widget
+        item = tree.identify_row(event.y)
+        if not item:
+            return
+        self.drag_data["task"] = self.task_map.get((status, item))
+        self.drag_data["from_status"] = status
+        self.drag_data["item_id"] = item
+        tree.selection_set(item)
+        self.root.config(cursor="hand2")
+
+    def on_drag_motion(self, event):
+        pass
+
+    def on_drop(self, event):
+        if not self.drag_data["task"]:
+            self._reset_drag()
+            return
+
+        target_status = None
+        for status, tree in self.columns.items():
+            x1 = tree.winfo_rootx()
+            x2 = x1 + tree.winfo_width()
+            y1 = tree.winfo_rooty()
+            y2 = y1 + tree.winfo_height()
+            if x1 <= event.x_root <= x2 and y1 <= event.y_root <= y2:
+                target_status = status
+                break
+
+        if target_status is None:
+            self._reset_drag()
+            return
+
+        if target_status != self.drag_data["from_status"]:
+            task = self.drag_data["task"]
+            try:
+                self.repo.update_task_status(task.id, target_status)
+                self._load_tasks()
+            except Exception as e:
+                messagebox.showerror("Fehler", f"Status konnte nicht geändert werden:\n{e}")
+
+        self._reset_drag()
+
+    def _reset_drag(self):
+        self.drag_data = {"task": None, "from_status": None, "item_id": None}
+        self.root.config(cursor="")
+
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = TaskGUI(root)
+    repo = TaskRepository()
+    app = TaskGUI(root, repo)
     root.mainloop()
