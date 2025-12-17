@@ -1,10 +1,10 @@
-# data/database.py
 import sqlite3
 from pathlib import Path
 from datetime import datetime
 from abc import ABC, abstractmethod
 
 from .models import Task
+from config import STATUS_COLUMNS, STATUS_LABELS, PRIORITY_COLORS
 
 DB_PATH = Path(__file__).parent / "tasks.db"
 
@@ -55,6 +55,7 @@ class TaskRepository(AbstractTaskRepository):
         schema = Path(__file__).parent / "schema.sql"
         if not schema.exists():
             print(f"[ERROR] Schema file not found at: {schema.resolve()}")
+            #raise FileNotFoundError(f"[ERROR] Schema file not found at: {schema.resolve()}")
             return
         with self._connect() as conn, open(schema, "r") as f:
             conn.executescript(f.read())
@@ -67,7 +68,7 @@ class TaskRepository(AbstractTaskRepository):
 
         if not title or not title.strip():
             raise ValueError("Title is required.")
-        if status not in ["todo", "in-progress", "done"]:
+        if status not in STATUS_COLUMNS:
             raise ValueError("Invalid status value.")
         if priority not in [1, 2, 3]:
             raise ValueError("Priority must be 1, 2, or 3.")
@@ -135,7 +136,7 @@ class TaskRepository(AbstractTaskRepository):
 
     def update_task_status(self, task_id, new_status):
         print(f"[DEBUG] update_task_status called: task_id={task_id}, new_status={new_status}")
-        if new_status not in ["todo", "in-progress", "done"]:
+        if new_status not in STATUS_COLUMNS:
             raise ValueError("Invalid status value.")
 
         try:

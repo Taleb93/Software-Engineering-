@@ -12,8 +12,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL CHECK (length(title) > 0),
     description TEXT,
-    status TEXT NOT NULL DEFAULT 'todo'
-        CHECK(status IN ('todo', 'in-progress', 'done')),
+    status TEXT NOT NULL,
     priority INTEGER NOT NULL DEFAULT 2
         CHECK(priority BETWEEN 1 AND 3),
     deadline TEXT

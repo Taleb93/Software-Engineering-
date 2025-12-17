@@ -3,14 +3,7 @@ from tkinter import messagebox, ttk
 from datetime import datetime
 from data.database import TaskRepository, AbstractTaskRepository
 
-STATUS_COLUMNS = ["todo", "in-progress", "done"]
-STATUS_LABELS = {
-    "todo": "To Do",
-    "in-progress": "In Progress",
-    "done": "Done"
-}
-PRIORITY_COLORS = {1: "red", 2: "yellow", 3: "green"}
-
+from config import STATUS_COLUMNS, STATUS_LABELS, PRIORITY_COLORS
 
 class TaskGUI:
     def __init__(self, root: tk.Tk, repo: AbstractTaskRepository):
