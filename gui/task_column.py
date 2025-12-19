@@ -27,6 +27,8 @@ class TaskColumn(tk.Frame):
         if task.deadline_display():
             text += f" (Deadline: {task.deadline_display()})"
 
+        # Tag für Priorität setzen
         item = self.tree.insert("", "end", text=text, tags=(f"prio{task.priority}",))
-        self.tree.tag_configure(f"prio{task.priority}", background=PRIORITY_COLORS[task.priority])
+        # Tag konfigurieren: Farbe nach PRIORITY_COLORS
+        self.tree.tag_configure(f"prio{task.priority}", background=PRIORITY_COLORS[task.priority], foreground="black")
         return item

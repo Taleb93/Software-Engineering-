@@ -7,7 +7,8 @@ STATUS_LABELS = {
 }
 
 PRIORITY_COLORS = {
-    1: "red",
-    2: "yellow",
-    3: "green"
+    1: "#f85555",
+    2: "#f4ef61",
+    3: "#47fb47"
 }
+

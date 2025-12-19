@@ -12,6 +12,7 @@ class TaskGUI:
         self.repo = TaskRepository()
         self.task_map = {}
         self.columns = {}
+        self.task_columns = {}  # <-- Hier speichern wir die TaskColumn-Objekte
 
         self.drag = DragController(self.repo, self.load_tasks, root)
 
@@ -34,6 +35,7 @@ class TaskGUI:
             )
             col.grid(row=0, column=i, sticky="nsew")
             self.columns[status] = col.tree
+            self.task_columns[status] = col  # <-- speichern
 
         self.drag.set_columns(self.columns)
 
@@ -46,10 +48,10 @@ class TaskGUI:
     def load_tasks(self):
         self.task_map.clear()
         for status in STATUS_COLUMNS:
-            col = self.columns[status]
-            col.delete(*col.get_children())
+            task_column_obj = self.task_columns[status]  # TaskColumn-Objekt
+            task_column_obj.clear()
             for task in self.repo.get_tasks_by_status(status):
-                item = col.insert("", "end", text=task.title)
+                item = task_column_obj.insert_task(task)
                 self.task_map[(status, item)] = task
 
     def show_context_menu(self, event):
