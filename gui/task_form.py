@@ -4,6 +4,15 @@ from datetime import datetime
 from .config import PRIORITY_COLORS
 
 class TaskForm(tk.Toplevel):
+    """
+    Fenster zum Erstellen oder Bearbeiten eines Tasks.
+    
+    Attribute:
+        repo: Referenz zum TaskRepository für DB-Zugriffe.
+        task: Optional; Task-Objekt zum Bearbeiten.
+        on_save: Callback-Funktion, die nach dem Speichern aufgerufen wird.
+    """
+
     def __init__(self, parent, repo, on_save, task=None):
         super().__init__(parent)
         self.repo = repo
@@ -15,6 +24,7 @@ class TaskForm(tk.Toplevel):
         self._build()
 
     def _build(self):
+        #Erstellt alle Eingabefelder, Labels und Buttons des Formulars
         tk.Label(self, text="Title:").grid(row=0, column=0, sticky="w")
         self.title_entry = tk.Entry(self, width=40)
         self.title_entry.grid(row=0, column=1)
@@ -53,6 +63,11 @@ class TaskForm(tk.Toplevel):
             lbl.config(highlightthickness=2 if k == p else 0, highlightbackground="black")
 
     def save(self):
+        """
+        Validiert Eingaben, konvertiert das Datum ins ISO-Format und
+        erstellt oder aktualisiert den Task in der Datenbank.
+        Ruft danach den Callback on_save auf und schließt das Fenster.
+        """
         if not self.priority.get():
             messagebox.showerror("Error", "Bitte Priorität wählen")
             return

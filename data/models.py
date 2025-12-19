@@ -1,6 +1,7 @@
 from datetime import datetime
 
 class Task:
+    #Datenmodell für einen Task mit optionaler Kategorie.
     def __init__(self, id, title, description, status, priority, deadline, category_id=None, category_name=None, category_color=None):
         self.id = id
         self.title = title

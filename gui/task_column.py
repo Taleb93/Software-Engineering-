@@ -3,6 +3,15 @@ from tkinter import ttk
 from .config import PRIORITY_COLORS
 
 class TaskColumn(tk.Frame):
+    """
+    Repräsentiert eine Spalte im Kanban-Board für Tasks eines bestimmten Status.
+
+    Attributes:
+        status: Status der Spalte ('todo', 'in-progress', 'done').
+        task_map: Dictionary zum Zuordnen von Treeview-Items zu Task-Objekten.
+        tree: ttk.Treeview zur Darstellung der Tasks.
+    """
+
     def __init__(self, parent, status, label_text, context_cb, dbl_cb, drag_controller, task_map):
         super().__init__(parent, padx=5, pady=5)
         self.status = status

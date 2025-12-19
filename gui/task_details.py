@@ -1,6 +1,14 @@
 import tkinter as tk
 
 def show_task_details(parent, task):
+    """
+    Öffnet ein kleines Fenster, das alle Details eines Tasks anzeigt.
+
+    Args:
+        parent: Übergeordnetes Tkinter-Fenster.
+        task: Task-Objekt, dessen Details angezeigt werden sollen.
+    """
+
     win = tk.Toplevel(parent)
     win.title(task.title)
 

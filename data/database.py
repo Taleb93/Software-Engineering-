@@ -1,11 +1,12 @@
 import sqlite3
 from pathlib import Path
 from datetime import datetime
-from .models import Task  # neue Task-Klasse
+from .models import Task  
 
 DB_PATH = Path(__file__).parent / "tasks.db"
 
 class TaskRepository:
+    #Kapselt alle CRUD-Operationen für Tasks in der SQLite-Datenbank.
     def __init__(self, db_path=DB_PATH):
         self.db_path = db_path
         self._initialize_database()
@@ -23,7 +24,7 @@ class TaskRepository:
         with self._connect() as conn, open(schema, "r") as f:
             conn.executescript(f.read())
 
-    # ✅ CRUD Operations
+    # CRUD Operations
     def create_task(self, title, description="", status="todo", priority=2, deadline=None, category_id=None):
         if not title or not title.strip():
             raise ValueError("Title is required.")

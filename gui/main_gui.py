@@ -7,12 +7,22 @@ from .task_details import show_task_details
 from .drag_controller import DragController
 
 class TaskGUI:
+    """
+    Haupt-GUI für das Kanban-Board.
+
+    Verantwortlich für:
+        - Erstellen der Spalten für jeden Task-Status
+        - Laden und Anzeigen der Tasks
+        - Interaktion mit TaskForm und TaskDetails
+        - Drag & Drop über DragController
+    """
+
     def __init__(self, root):
         self.root = root
         self.repo = TaskRepository()
         self.task_map = {}
         self.columns = {}
-        self.task_columns = {}  # <-- Hier speichern wir die TaskColumn-Objekte
+        self.task_columns = {} 
 
         self.drag = DragController(self.repo, self.load_tasks, root)
 
@@ -35,7 +45,7 @@ class TaskGUI:
             )
             col.grid(row=0, column=i, sticky="nsew")
             self.columns[status] = col.tree
-            self.task_columns[status] = col  # <-- speichern
+            self.task_columns[status] = col  
 
         self.drag.set_columns(self.columns)
 
@@ -48,14 +58,14 @@ class TaskGUI:
     def load_tasks(self):
         self.task_map.clear()
         for status in STATUS_COLUMNS:
-            task_column_obj = self.task_columns[status]  # TaskColumn-Objekt
+            task_column_obj = self.task_columns[status]  
             task_column_obj.clear()
             for task in self.repo.get_tasks_by_status(status):
                 item = task_column_obj.insert_task(task)
                 self.task_map[(status, item)] = task
 
     def show_context_menu(self, event):
-        pass  # optional Erweiterung
+        pass  
 
     def show_details(self, event):
         tree = event.widget
